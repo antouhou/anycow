@@ -15,9 +15,8 @@
 //! ## Storage Variants
 //!
 //! - [`AnyCow::Borrowed`] - Zero-cost references for temporary data
-//! - [`AnyCow::Owned`] - Direct ownership for mutable data  
+//! - [`AnyCow::Owned`] - Heap-allocated owned data via `Box<T>` 
 //! - [`AnyCow::Shared`] - `Arc<T>` for shared immutable data across threads
-//! - [`AnyCow::Boxed`] - Heap allocation for large objects
 //! - [`AnyCow::Updatable`] - Lock-free atomic updates using `arc-swap`
 //!
 //! ## Quick Example
@@ -49,9 +48,8 @@ use std::ops::Deref;
 /// storage strategies, each optimized for different use cases:
 ///
 /// - **Borrowed**: Zero-cost references to existing data
-/// - **Owned**: Direct ownership of the data
+/// - **Owned**: Heap-allocated owned data via `Box<T>`
 /// - **Shared**: Reference-counted sharing via `Arc<T>`
-/// - **Boxed**: Heap-allocated data via `Box<T>`
 /// - **Updatable**: Atomic, lock-free updates via `arc-swap`
 ///
 /// # Examples
@@ -82,17 +80,12 @@ where
     /// where you want to avoid any allocation overhead.
     Borrowed(&'a T),
     
-    /// Owned data that can be mutated directly.
+    /// Heap-allocated owned data stored in a `Box<T>`.
     /// 
-    /// This variant gives you full ownership of the data and allows
-    /// for direct mutation via [`to_mut()`](AnyCow::to_mut).
-    Owned(T),
-    
-    /// Heap-allocated data stored in a `Box<T>`.
-    /// 
-    /// Useful for large objects that you want to store on the heap
-    /// while maintaining single ownership semantics.
-    Boxed(Box<T>),
+    /// This variant gives you ownership of the data stored on the heap
+    /// and allows for direct mutation via [`to_mut()`](AnyCow::to_mut).
+    /// Useful for data that needs to be owned and potentially large.
+    Owned(Box<T>),
     
     /// Reference-counted shared data via `Arc<T>`.
     /// 
@@ -130,9 +123,9 @@ where
         AnyCow::Borrowed(value)
     }
 
-    /// Creates a new `AnyCow` with owned data.
+    /// Creates a new `AnyCow` with owned data stored in a `Box<T>`.
     /// 
-    /// The data is moved into the container and can be mutated
+    /// The data is moved into a heap-allocated box and can be mutated
     /// via [`to_mut()`](Self::to_mut).
     /// 
     /// # Examples
@@ -144,24 +137,7 @@ where
     /// assert!(cow.is_owned());
     /// ```
     pub fn owned(value: T) -> Self {
-        AnyCow::Owned(value)
-    }
-
-    /// Creates a new `AnyCow` with heap-allocated data.
-    /// 
-    /// Useful for large objects that should be stored on the heap.
-    /// 
-    /// # Examples
-    /// 
-    /// ```rust
-    /// use anycow::AnyCow;
-    /// 
-    /// let data = Box::new(vec![1, 2, 3, 4, 5]);
-    /// let cow = AnyCow::boxed(data);
-    /// assert!(cow.is_boxed());
-    /// ```
-    pub fn boxed(value: Box<T>) -> Self {
-        AnyCow::Boxed(value)
+        AnyCow::Owned(Box::new(value))
     }
 
     /// Creates a new `AnyCow` with reference-counted shared data.
@@ -242,21 +218,6 @@ where
         matches!(self, AnyCow::Owned(_))
     }
 
-    /// Returns `true` if this `AnyCow` contains boxed data.
-    /// 
-    /// # Examples
-    /// 
-    /// ```rust
-    /// use anycow::AnyCow;
-    /// 
-    /// let data = Box::new(String::from("hello"));
-    /// let cow = AnyCow::boxed(data);
-    /// assert!(cow.is_boxed());
-    /// ```
-    pub fn is_boxed(&self) -> bool {
-        matches!(self, AnyCow::Boxed(_))
-    }
-
     /// Returns a mutable reference to the owned data.
     /// 
     /// If the data is not already owned, this method will clone it
@@ -282,7 +243,7 @@ where
     pub fn to_mut(&mut self) -> &mut T {
         match self {
             AnyCow::Borrowed(value) => {
-                *self = AnyCow::Owned(value.to_owned());
+                *self = AnyCow::Owned(Box::new(value.to_owned()));
                 match self {
                     AnyCow::Owned(value) => value,
                     _ => unreachable!(),
@@ -290,7 +251,7 @@ where
             }
             AnyCow::Owned(value) => value,
             AnyCow::Shared(value) => {
-                *self = AnyCow::Owned(value.as_ref().to_owned());
+                *self = AnyCow::Owned(Box::new(value.as_ref().to_owned()));
                 match self {
                     AnyCow::Owned(value) => value,
                     _ => unreachable!(),
@@ -298,14 +259,7 @@ where
             }
             AnyCow::Updatable(value) => {
                 let owned = value.load().as_ref().to_owned();
-                *self = AnyCow::Owned(owned);
-                match self {
-                    AnyCow::Owned(value) => value,
-                    _ => unreachable!(),
-                }
-            }
-            AnyCow::Boxed(value) => {
-                *self = AnyCow::Owned((**value).to_owned());
+                *self = AnyCow::Owned(Box::new(owned));
                 match self {
                     AnyCow::Owned(value) => value,
                     _ => unreachable!(),
@@ -338,10 +292,9 @@ where
     pub fn into_owned(self) -> T {
         match self {
             AnyCow::Borrowed(value) => value.to_owned(),
-            AnyCow::Owned(value) => value,
+            AnyCow::Owned(value) => *value,
             AnyCow::Shared(value) => Arc::try_unwrap(value).unwrap_or_else(|arc| arc.as_ref().to_owned()),
             AnyCow::Updatable(value) => value.load().as_ref().to_owned(),
-            AnyCow::Boxed(value) => *value,
         }
     }
 
@@ -368,10 +321,9 @@ where
     pub fn borrow(&self) -> AnyCowRef<T> {
         match self {
             AnyCow::Borrowed(value) => AnyCowRef::Direct(value),
-            AnyCow::Owned(value) => AnyCowRef::Direct(&*value),
+            AnyCow::Owned(value) => AnyCowRef::Direct(&**value),
             AnyCow::Shared(value) => AnyCowRef::Direct(&*value),
             AnyCow::Updatable(value) => AnyCowRef::Guarded(value.load()),
-            AnyCow::Boxed(value) => AnyCowRef::Direct(&**value),
         }
     }
 
@@ -430,10 +382,9 @@ where
     pub fn to_arc(&self) -> Arc<T> {
         match self {
             AnyCow::Borrowed(value) => Arc::new((*value).to_owned()),
-            AnyCow::Owned(value) => Arc::new(value.to_owned()),
+            AnyCow::Owned(value) => Arc::new((**value).to_owned()),
             AnyCow::Shared(value) => value.clone(),
             AnyCow::Updatable(value) => value.load().to_owned(),
-            AnyCow::Boxed(value) => Arc::new((**value).to_owned()),
         }
     }
 }
@@ -456,7 +407,7 @@ where
     T: ToOwned,
 {
     fn from(value: T) -> Self {
-        AnyCow::Owned(value)
+        AnyCow::Owned(Box::new(value))
     }
 }
 
@@ -503,29 +454,6 @@ where
 {
     fn from(value: Arc<T>) -> Self {
         AnyCow::Shared(value)
-    }
-}
-
-/// Automatic conversion from `Box<T>`.
-/// 
-/// This implementation allows `Box<T>` values to be automatically
-/// converted into an `AnyCow::Boxed` variant.
-/// 
-/// # Examples
-/// 
-/// ```rust
-/// use anycow::AnyCow;
-/// 
-/// let boxed = Box::new(String::from("hello"));
-/// let cow: AnyCow<String> = boxed.into();
-/// assert!(cow.is_boxed());
-/// ```
-impl<T> From<Box<T>> for AnyCow<'_, T>
-where
-    T: ToOwned,
-{
-    fn from(value: Box<T>) -> Self {
-        AnyCow::Boxed(value)
     }
 }
 
@@ -583,10 +511,9 @@ where
 /// 
 /// Cloning behavior varies by variant:
 /// - `Borrowed`: Copies the reference (cheap)
-/// - `Owned`: Clones the owned data
+/// - `Owned`: Clones the owned data in the box
 /// - `Shared`: Clones the `Arc` (cheap reference counting)
 /// - `Updatable`: Converts to `Shared` with current data snapshot
-/// - `Boxed`: Converts to `Owned` by cloning the boxed data
 impl<'a, T> Clone for AnyCow<'a, T>
 where
     T: 'a + ToOwned<Owned = T> + Clone,
@@ -594,10 +521,9 @@ where
     fn clone(&self) -> Self {
         match self {
             AnyCow::Borrowed(value) => AnyCow::Borrowed(value),
-            AnyCow::Owned(value) => AnyCow::Owned(value.clone()),
+            AnyCow::Owned(value) => AnyCow::Owned(Box::new((**value).clone())),
             AnyCow::Shared(value) => AnyCow::Shared(value.clone()),
             AnyCow::Updatable(value) => AnyCow::Shared(value.load().clone()),
-            AnyCow::Boxed(value) => AnyCow::Owned((**value).clone()),
         }
     }
 }
@@ -612,10 +538,9 @@ where
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             AnyCow::Borrowed(value) => f.debug_tuple("Borrowed").field(value).finish(),
-            AnyCow::Owned(value) => f.debug_tuple("Owned").field(value).finish(),
+            AnyCow::Owned(value) => f.debug_tuple("Owned").field(&**value).finish(),
             AnyCow::Shared(value) => f.debug_tuple("Shared").field(value).finish(),
             AnyCow::Updatable(value) => f.debug_tuple("Updatable").field(&*value.load()).finish(),
-            AnyCow::Boxed(value) => f.debug_tuple("Boxed").field(&**value).finish(),
         }
     }
 }

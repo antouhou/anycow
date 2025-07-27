@@ -12,9 +12,8 @@
 
 - **Multiple Storage Strategies**: Choose the right storage for your use case
   - `Borrowed` - Zero-cost references for temporary data
-  - `Owned` - Direct ownership for mutable data
+  - `Owned` - Heap-allocated owned data via `Box<T>`
   - `Shared` - `Arc<T>` for shared immutable data
-  - `Boxed` - Heap allocation for large objects
   - `Updatable` - Lock-free atomic updates using `arc-swap`
 
 - **Lock-Free Updates**: The `Updatable` variant uses `arc-swap` for atomic, lock-free updates
@@ -136,9 +135,8 @@ reader.join().unwrap();
 | Variant | Best For | Thread Safe | Mutable | Memory |
 |---------|----------|-------------|---------|--------|
 | `Borrowed` | Temporary refs, hot paths | ❌ | ❌ | Zero-copy |
-| `Owned` | Exclusive ownership | ❌ | ✅ | Stack/Heap |
+| `Owned` | Exclusive ownership | ❌ | ✅ | Heap |
 | `Shared` | Read-only sharing | ✅ | ❌ | Shared |
-| `Boxed` | Large objects | ❌ | Via `to_mut()` | Heap |
 | `Updatable` | Concurrent reads + atomic updates | ✅ | Via `try_replace()` | Shared + Atomic |
 
 ## 🔧 API Reference
@@ -146,9 +144,8 @@ reader.join().unwrap();
 ### Construction
 ```rust
 AnyCow::borrowed(&value)    // From reference
-AnyCow::owned(value)        // From owned value
+AnyCow::owned(value)        // From owned value (boxed)
 AnyCow::shared(arc)         // From Arc<T>
-AnyCow::boxed(boxed)        // From Box<T>
 AnyCow::updatable(value)    // Create updatable variant
 ```
 
