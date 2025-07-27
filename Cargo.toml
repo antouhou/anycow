@@ -1,0 +1,20 @@
+[package]
+name = "anycow"
+version = "0.1.0"
+edition = "2021"
+description = "A supercharged container for read-heavy, occasionally-updated data structures with multiple storage strategies"
+authors = ["Anton Suprunchuk <anton.suprunchuk@gmail.com>"]
+license = "MIT"
+repository = "https://github.com/antouhou/anycow"
+documentation = "https://docs.rs/anycow"
+homepage = "https://github.com/antouhou/anycow"
+readme = "README.md"
+keywords = ["cow", "container", "lock-free", "atomic", "data-structure"]
+categories = ["data-structures", "concurrency", "memory-management", "rust-patterns"]
+
+[dependencies]
+arc-swap = "1.7.1"
+
+[package.metadata.docs.rs]
+all-features = true
+rustdoc-args = ["--cfg", "docsrs"]
