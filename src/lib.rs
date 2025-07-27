@@ -218,33 +218,7 @@ where
     T: 'a + ToOwned<Owned = T> + PartialEq,
 {
     fn eq(&self, other: &Self) -> bool {
-        match (self, other) {
-            (AnyCow::Borrowed(a), AnyCow::Borrowed(b)) => a == b,
-            (AnyCow::Owned(a), AnyCow::Owned(b)) => a == b,
-            (AnyCow::Shared(a), AnyCow::Shared(b)) => a.as_ref() == b.as_ref(),
-            (AnyCow::Updatable(a), AnyCow::Updatable(b)) => a.load().as_ref() == b.load().as_ref(),
-            (AnyCow::Boxed(a), AnyCow::Boxed(b)) => a == b,
-            (AnyCow::Borrowed(a), AnyCow::Owned(b)) => *a == b,
-            (AnyCow::Owned(a), AnyCow::Borrowed(b)) => a == *b,
-            (AnyCow::Borrowed(a), AnyCow::Shared(b)) => *a == b.as_ref(),
-            (AnyCow::Shared(a), AnyCow::Borrowed(b)) => a.as_ref() == *b,
-            (AnyCow::Owned(a), AnyCow::Shared(b)) => a == b.as_ref(),
-            (AnyCow::Shared(a), AnyCow::Owned(b)) => a.as_ref() == b,
-            (AnyCow::Borrowed(a), AnyCow::Updatable(b)) => *a == b.load().as_ref(),
-            (AnyCow::Updatable(a), AnyCow::Borrowed(b)) => a.load().as_ref() == *b,
-            (AnyCow::Owned(a), AnyCow::Updatable(b)) => a == b.load().as_ref(),
-            (AnyCow::Updatable(a), AnyCow::Owned(b)) => a.load().as_ref() == b,
-            (AnyCow::Shared(a), AnyCow::Updatable(b)) => a.as_ref() == b.load().as_ref(),
-            (AnyCow::Updatable(a), AnyCow::Shared(b)) => a.load().as_ref() == b.as_ref(),
-            (AnyCow::Borrowed(a), AnyCow::Boxed(b)) => *a == b.as_ref(),
-            (AnyCow::Boxed(a), AnyCow::Borrowed(b)) => a.as_ref() == *b,
-            (AnyCow::Owned(a), AnyCow::Boxed(b)) => a == b.as_ref(),
-            (AnyCow::Boxed(a), AnyCow::Owned(b)) => a.as_ref() == b,
-            (AnyCow::Shared(a), AnyCow::Boxed(b)) => a.as_ref() == b.as_ref(),
-            (AnyCow::Boxed(a), AnyCow::Shared(b)) => a.as_ref() == b.as_ref(),
-            (AnyCow::Updatable(a), AnyCow::Boxed(b)) => a.load().as_ref() == b.as_ref(),
-            (AnyCow::Boxed(a), AnyCow::Updatable(b)) => a.as_ref() == b.load().as_ref(),
-        }
+        self.borrow().deref() == other.borrow().deref()
     }
 }
 
@@ -259,13 +233,7 @@ where
     T: 'a + ToOwned<Owned = T> + std::hash::Hash,
 {
     fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
-        match self {
-            AnyCow::Borrowed(value) => value.hash(state),
-            AnyCow::Owned(value) => value.hash(state),
-            AnyCow::Shared(value) => value.as_ref().hash(state),
-            AnyCow::Updatable(value) => value.load().as_ref().hash(state),
-            AnyCow::Boxed(value) => value.hash(state),
-        }
+        self.borrow().deref().hash(state)
     }
 }
 
@@ -274,33 +242,7 @@ where
     T: 'a + ToOwned<Owned = T> + PartialOrd,
 {
     fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
-        match (self, other) {
-            (AnyCow::Borrowed(a), AnyCow::Borrowed(b)) => a.partial_cmp(b),
-            (AnyCow::Owned(a), AnyCow::Owned(b)) => a.partial_cmp(b),
-            (AnyCow::Shared(a), AnyCow::Shared(b)) => a.as_ref().partial_cmp(b.as_ref()),
-            (AnyCow::Updatable(a), AnyCow::Updatable(b)) => a.load().as_ref().partial_cmp(b.load().as_ref()),
-            (AnyCow::Boxed(a), AnyCow::Boxed(b)) => a.partial_cmp(b),
-            (AnyCow::Borrowed(a), AnyCow::Owned(b)) => (*a).partial_cmp(b),
-            (AnyCow::Owned(a), AnyCow::Borrowed(b)) => a.partial_cmp(*b),
-            (AnyCow::Borrowed(a), AnyCow::Shared(b)) => (*a).partial_cmp(b.as_ref()),
-            (AnyCow::Shared(a), AnyCow::Borrowed(b)) => a.as_ref().partial_cmp(*b),
-            (AnyCow::Owned(a), AnyCow::Shared(b)) => a.partial_cmp(b.as_ref()),
-            (AnyCow::Shared(a), AnyCow::Owned(b)) => a.as_ref().partial_cmp(b),
-            (AnyCow::Borrowed(a), AnyCow::Updatable(b)) => (*a).partial_cmp(b.load().as_ref()),
-            (AnyCow::Updatable(a), AnyCow::Borrowed(b)) => a.load().as_ref().partial_cmp(*b),
-            (AnyCow::Owned(a), AnyCow::Updatable(b)) => a.partial_cmp(b.load().as_ref()),
-            (AnyCow::Updatable(a), AnyCow::Owned(b)) => a.load().as_ref().partial_cmp(b),
-            (AnyCow::Shared(a), AnyCow::Updatable(b)) => a.as_ref().partial_cmp(b.load().as_ref()),
-            (AnyCow::Updatable(a), AnyCow::Shared(b)) => a.load().as_ref().partial_cmp(b.as_ref()),
-            (AnyCow::Borrowed(a), AnyCow::Boxed(b)) => (*a).partial_cmp(b.as_ref()),
-            (AnyCow::Boxed(a), AnyCow::Borrowed(b)) => a.as_ref().partial_cmp(*b),
-            (AnyCow::Owned(a), AnyCow::Boxed(b)) => a.partial_cmp(b.as_ref()),
-            (AnyCow::Boxed(a), AnyCow::Owned(b)) => a.as_ref().partial_cmp(b),
-            (AnyCow::Shared(a), AnyCow::Boxed(b)) => a.as_ref().partial_cmp(b.as_ref()),
-            (AnyCow::Boxed(a), AnyCow::Shared(b)) => a.as_ref().partial_cmp(b.as_ref()),
-            (AnyCow::Updatable(a), AnyCow::Boxed(b)) => a.load().as_ref().partial_cmp(b.as_ref()),
-            (AnyCow::Boxed(a), AnyCow::Updatable(b)) => a.as_ref().partial_cmp(b.load().as_ref()),
-        }
+        self.borrow().deref().partial_cmp(other.borrow().deref())
     }
 }
 
@@ -309,33 +251,7 @@ where
     T: 'a + ToOwned<Owned = T> + Ord,
 {
     fn cmp(&self, other: &Self) -> std::cmp::Ordering {
-        match (self, other) {
-            (AnyCow::Borrowed(a), AnyCow::Borrowed(b)) => a.cmp(b),
-            (AnyCow::Owned(a), AnyCow::Owned(b)) => a.cmp(b),
-            (AnyCow::Shared(a), AnyCow::Shared(b)) => a.as_ref().cmp(b.as_ref()),
-            (AnyCow::Updatable(a), AnyCow::Updatable(b)) => a.load().as_ref().cmp(b.load().as_ref()),
-            (AnyCow::Boxed(a), AnyCow::Boxed(b)) => a.cmp(b),
-            (AnyCow::Borrowed(a), AnyCow::Owned(b)) => (*a).cmp(b),
-            (AnyCow::Owned(a), AnyCow::Borrowed(b)) => a.cmp(*b),
-            (AnyCow::Borrowed(a), AnyCow::Shared(b)) => (*a).cmp(b.as_ref()),
-            (AnyCow::Shared(a), AnyCow::Borrowed(b)) => a.as_ref().cmp(*b),
-            (AnyCow::Owned(a), AnyCow::Shared(b)) => a.cmp(b.as_ref()),
-            (AnyCow::Shared(a), AnyCow::Owned(b)) => a.as_ref().cmp(b),
-            (AnyCow::Borrowed(a), AnyCow::Updatable(b)) => (*a).cmp(b.load().as_ref()),
-            (AnyCow::Updatable(a), AnyCow::Borrowed(b)) => a.load().as_ref().cmp(*b),
-            (AnyCow::Owned(a), AnyCow::Updatable(b)) => a.cmp(b.load().as_ref()),
-            (AnyCow::Updatable(a), AnyCow::Owned(b)) => a.load().as_ref().cmp(b),
-            (AnyCow::Shared(a), AnyCow::Updatable(b)) => a.as_ref().cmp(b.load().as_ref()),
-            (AnyCow::Updatable(a), AnyCow::Shared(b)) => a.load().as_ref().cmp(b.as_ref()),
-            (AnyCow::Borrowed(a), AnyCow::Boxed(b)) => (*a).cmp(b.as_ref()),
-            (AnyCow::Boxed(a), AnyCow::Borrowed(b)) => a.as_ref().cmp(*b),
-            (AnyCow::Owned(a), AnyCow::Boxed(b)) => a.cmp(b.as_ref()),
-            (AnyCow::Boxed(a), AnyCow::Owned(b)) => a.as_ref().cmp(b),
-            (AnyCow::Shared(a), AnyCow::Boxed(b)) => a.as_ref().cmp(b.as_ref()),
-            (AnyCow::Boxed(a), AnyCow::Shared(b)) => a.as_ref().cmp(b.as_ref()),
-            (AnyCow::Updatable(a), AnyCow::Boxed(b)) => a.load().as_ref().cmp(b.as_ref()),
-            (AnyCow::Boxed(a), AnyCow::Updatable(b)) => a.as_ref().cmp(b.load().as_ref()),
-        }
+        self.borrow().deref().cmp(other.borrow().deref())
     }
 }
 
@@ -344,12 +260,6 @@ where
     T: 'a + ToOwned<Owned = T> + std::fmt::Display,
 {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            AnyCow::Borrowed(value) => value.fmt(f),
-            AnyCow::Owned(value) => value.fmt(f),
-            AnyCow::Shared(value) => value.as_ref().fmt(f),
-            AnyCow::Updatable(value) => value.load().as_ref().fmt(f),
-            AnyCow::Boxed(value) => value.fmt(f),
-        }
+        self.borrow().deref().fmt(f)
     }
 }
