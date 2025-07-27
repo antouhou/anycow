@@ -1,0 +1,7 @@
+[package]
+name = "anycow"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+arc-swap = "1.7.1"
