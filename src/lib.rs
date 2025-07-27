@@ -1,5 +1,6 @@
-use arc_swap::ArcSwap;
+use arc_swap::{ArcSwap, Guard};
 use std::sync::Arc;
+use std::ops::Deref;
 
 pub enum AnyCow<'a, T>
 where
@@ -28,14 +29,12 @@ where
         }
     }
 
-    pub fn borrow(&self) -> &T {
+    pub fn borrow(&self) -> AnyCowRef<T> {
         match self {
-            AnyCow::Borrowed(value) => value,
-            AnyCow::Boxed(value) => &*value,
-            AnyCow::Shared(value) => &*value,
-            AnyCow::Updatable(value) => {
-
-            },
+            AnyCow::Borrowed(value) => AnyCowRef::Direct(value),
+            AnyCow::Boxed(value) => AnyCowRef::Direct(&*value),
+            AnyCow::Shared(value) => AnyCowRef::Direct(&*value),
+            AnyCow::Updatable(value) => AnyCowRef::Guarded(value.load()),
         }
     }
 
@@ -82,5 +81,27 @@ where
 {
     fn from(value: Arc<T>) -> Self {
         AnyCow::Shared(value)
+    }
+}
+
+pub enum AnyCowRef<'a, T>
+where
+    T: 'a + ToOwned,
+{
+    Direct(&'a T),
+    Guarded(Guard<Arc<T>>),
+}
+
+impl<'a, T> Deref for AnyCowRef<'a, T>
+where
+    T: 'a + ToOwned,
+{
+    type Target = T;
+
+    fn deref(&self) -> &Self::Target {
+        match self {
+            AnyCowRef::Direct(value) => value,
+            AnyCowRef::Guarded(guard) => guard.as_ref(),
+        }
     }
 }
