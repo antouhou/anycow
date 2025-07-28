@@ -529,6 +529,41 @@ where
             }
         }
     }
+
+    /// Converts this `AnyCow` to a shared variant.
+    ///
+    /// Borrowed stays borrowed (no heap allocation).
+    /// All other variants allocate or clone into an Arc<T>.
+    /// Calling to_shared on a Lazy will force initialization.
+    ///
+    /// # Conversion behavior:
+    /// - `Borrowed` → stays `Borrowed` (zero-cost)
+    /// - `Owned` → converts to `Shared` with `Arc`
+    /// - `Shared` → returns a clone (cheap `Arc` clone)
+    /// - `Updatable` → converts to `Shared` with current value
+    /// - `Lazy` → initializes if needed and converts to `Shared`
+    ///
+    /// # Examples
+    ///
+    /// ```rust
+    /// use anycow::AnyCow;
+    /// use std::sync::Arc;
+    ///
+    /// let data = "hello";
+    /// let borrowed = AnyCow::borrowed(&data);
+    /// let shared = borrowed.to_shared();
+    /// assert!(shared.is_borrowed()); // Still borrowed!
+    ///
+    /// let owned = AnyCow::owned(String::from("world"));
+    /// let shared = owned.to_shared();
+    /// assert!(shared.is_shared()); // Now shared
+    /// ```
+    pub fn to_shared(&self) -> AnyCow<'a, T> {
+        match self {
+            AnyCow::Borrowed(value) => AnyCow::Borrowed(value),
+            _ => AnyCow::Shared(self.to_arc()),
+        }
+    }
 }
 
 /// Automatic conversion from owned values.
@@ -655,8 +690,12 @@ where
 /// - `Borrowed`: Copies the reference (cheap)
 /// - `Owned`: Clones the owned data in the box
 /// - `Shared`: Clones the `Arc` (cheap reference counting)
-/// - `Updatable`: Converts to `Shared` with current data snapshot
-/// - `Lazy`: Creates a new `Lazy` with the same init function
+/// - `Updatable`: Creates a new `Updatable` with a snapshot of current data
+/// - `Lazy`: Always initializes and creates an `Updatable` with the initialized data
+///
+/// Note: Cloning a `Lazy` variant will trigger initialization if it hasn't 
+/// happened yet, and the resulting clone will be an `Updatable` variant.
+/// This ensures that cloned data is immediately ready for use.
 impl<'a, T> Clone for AnyCow<'a, T>
 where
     T: 'a + ToOwned<Owned = T> + Clone,
@@ -666,18 +705,18 @@ where
             AnyCow::Borrowed(value) => AnyCow::Borrowed(value),
             AnyCow::Owned(value) => AnyCow::Owned(Box::new((**value).clone())),
             AnyCow::Shared(value) => AnyCow::Shared(value.clone()),
-            AnyCow::Updatable(value) => AnyCow::Shared(value.load().clone()),
+            AnyCow::Updatable(value) => {
+                // Create a new Updatable with a snapshot of the current data
+                // This maintains updatable semantics for the clone
+                AnyCow::Updatable(ArcSwap::from(value.load().clone()))
+            },
             AnyCow::Lazy { data, init } => {
-                // If already initialized, create a shared version with current data
-                // Otherwise, create a new lazy with the same init function
-                if let Some(arc_swap) = data.get() {
-                    AnyCow::Shared(arc_swap.load().clone())
-                } else {
-                    AnyCow::Lazy {
-                        data: OnceLock::new(),
-                        init: *init,
-                    }
-                }
+                // Always initialize the lazy data when cloning to ensure the clone
+                // has access to the actual data. This changes the clone from Lazy 
+                // to Updatable, which is intentional - once we've decided to clone 
+                // the data, we want it to be readily available.
+                let arc_swap = data.get_or_init(|| ArcSwap::from(Arc::new(init())));
+                AnyCow::Updatable(ArcSwap::from(arc_swap.load().clone()))
             }
         }
     }

@@ -1,5 +1,7 @@
+use std::ops::Deref;
 use anycow::AnyCow;
 use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::Arc;
 
 static INIT_COUNTER: AtomicUsize = AtomicUsize::new(0);
 
@@ -78,16 +80,21 @@ fn test_lazy_static_context() {
 fn test_lazy_clone() {
     let lazy_cow = AnyCow::lazy(|| String::from("original"));
     
-    // Clone before initialization should create a new lazy
+    // Clone of lazy variant should always initialize and create an updatable
     let cloned = lazy_cow.clone();
-    assert!(cloned.is_lazy());
+    assert!(cloned.is_updatable());
+    assert!(!cloned.is_lazy());
     
-    // Initialize the original
+    // The original should still be lazy but now initialized
+    assert!(lazy_cow.is_lazy());
+    
+    // Both should have the same data
     assert_eq!(*lazy_cow.borrow(), "original");
+    assert_eq!(*cloned.borrow(), "original");
     
-    // Clone after initialization should create a shared
+    // Clone after initialization should also create an updatable with the same data
     let cloned_after = lazy_cow.clone();
-    assert!(cloned_after.is_shared());
+    assert!(cloned_after.is_updatable());
     assert_eq!(*cloned_after.borrow(), "original");
 }
 
@@ -103,4 +110,91 @@ fn test_lazy_to_arc() {
     let lazy_cow = AnyCow::lazy(|| String::from("arc test"));
     let arc = lazy_cow.to_arc();
     assert_eq!(*arc, "arc test");
+}
+
+#[test]
+fn test_replace_clone() {
+    let lazy_cow = AnyCow::lazy(|| String::from("replace test"));
+
+    assert_eq!(lazy_cow.borrow().deref(), "replace test");
+
+    // Replace with a new value
+    let new_value = String::from("new value");
+    assert!(lazy_cow.try_replace(new_value.clone()).is_ok());
+    assert_eq!(*lazy_cow.borrow(), "new value");
+
+    // Ensure the original value is still accessible
+    let cloned = lazy_cow.clone();
+    assert_eq!(*cloned.borrow(), "new value");
+
+    assert!(lazy_cow.try_replace(String::from("test value")).is_ok());
+    assert_eq!(*lazy_cow.borrow(), "test value");
+    assert_eq!(*cloned.borrow(), "new value");
+}
+
+#[test]
+fn test_to_shared_borrowed() {
+    let data = "hello";
+    let borrowed = AnyCow::borrowed(&data);
+    let shared = borrowed.to_shared();
+    
+    // Should still be borrowed (zero-cost)
+    assert!(shared.is_borrowed());
+    assert_eq!(*shared.borrow(), "hello");
+}
+
+#[test]
+fn test_to_shared_owned() {
+    let owned = AnyCow::owned(String::from("world"));
+    let shared = owned.to_shared();
+    
+    // Should now be shared
+    assert!(shared.is_shared());
+    assert_eq!(*shared.borrow(), "world");
+}
+
+#[test]
+fn test_to_shared_shared() {
+    let arc_data = Arc::new(String::from("shared"));
+    let shared = AnyCow::shared(arc_data);
+    let new_shared = shared.to_shared();
+    
+    // Should remain shared
+    assert!(new_shared.is_shared());
+    assert_eq!(*new_shared.borrow(), "shared");
+}
+
+#[test]
+fn test_to_shared_updatable() {
+    let updatable = AnyCow::updatable(vec![1, 2, 3]);
+    let shared = updatable.to_shared();
+    
+    // Should now be shared
+    assert!(shared.is_shared());
+    assert_eq!(*shared.borrow(), vec![1, 2, 3]);
+}
+
+#[test]
+fn test_to_shared_lazy() {
+    let lazy = AnyCow::lazy(|| vec![4, 5, 6]);
+    let shared = lazy.to_shared();
+    
+    // Should now be shared
+    assert!(shared.is_shared());
+    assert_eq!(*shared.borrow(), vec![4, 5, 6]);
+}
+
+#[test]
+fn test_to_shared_vs_to_arc() {
+    let data = "test";
+    let borrowed = AnyCow::borrowed(&data);
+    
+    // to_shared keeps borrowed as borrowed
+    let shared = borrowed.to_shared();
+    assert!(shared.is_borrowed());
+    
+    // to_arc converts borrowed to owned Arc
+    let arc = borrowed.to_arc();
+    // We can't check if it's shared because to_arc returns Arc<T>, not AnyCow
+    assert_eq!(*arc, "test");
 }
