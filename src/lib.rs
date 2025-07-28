@@ -119,7 +119,7 @@ where
     /// let cow = AnyCow::borrowed(&data);
     /// assert!(cow.is_borrowed());
     /// ```
-    pub fn borrowed(value: &'a T) -> Self {
+    pub const fn borrowed(value: &'a T) -> Self {
         AnyCow::Borrowed(value)
     }
 
@@ -154,7 +154,7 @@ where
     /// let data = Arc::new(String::from("shared data"));
     /// let cow = AnyCow::shared(data);
     /// ```
-    pub fn shared(value: Arc<T>) -> Self {
+    pub const fn shared(value: Arc<T>) -> Self {
         AnyCow::Shared(value)
     }
 
@@ -196,7 +196,7 @@ where
     /// let cow = AnyCow::owned(String::from("hello"));
     /// assert!(!cow.is_borrowed());
     /// ```
-    pub fn is_borrowed(&self) -> bool {
+    pub const fn is_borrowed(&self) -> bool {
         matches!(self, AnyCow::Borrowed(_))
     }
 
@@ -214,8 +214,43 @@ where
     /// let cow = AnyCow::borrowed(&data);
     /// assert!(!cow.is_owned());
     /// ```
-    pub fn is_owned(&self) -> bool {
+    pub const fn is_owned(&self) -> bool {
         matches!(self, AnyCow::Owned(_))
+    }
+
+    /// Returns `true` if this `AnyCow` contains shared data.
+    ///
+    /// # Examples
+    ///
+    /// ```rust
+    /// use anycow::AnyCow;
+    /// use std::sync::Arc;
+    ///
+    /// let cow = AnyCow::shared(Arc::new(String::from("hello")));
+    /// assert!(cow.is_shared());
+    ///
+    /// let cow = AnyCow::owned(String::from("hello"));
+    /// assert!(!cow.is_shared());
+    /// ```
+    pub const fn is_shared(&self) -> bool {
+        matches!(self, AnyCow::Shared(_))
+    }
+
+    /// Returns `true` if this `AnyCow` contains updatable data.
+    ///
+    /// # Examples
+    ///
+    /// ```rust
+    /// use anycow::AnyCow;
+    ///
+    /// let cow = AnyCow::updatable(String::from("hello"));
+    /// assert!(cow.is_updatable());
+    ///
+    /// let cow = AnyCow::owned(String::from("hello"));
+    /// assert!(!cow.is_updatable());
+    /// ```
+    pub const fn is_updatable(&self) -> bool {
+        matches!(self, AnyCow::Updatable(_))
     }
 
     /// Returns a mutable reference to the owned data.
