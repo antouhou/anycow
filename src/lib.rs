@@ -1,8 +1,8 @@
 //! # AnyCow - A Supercharged Container for Read-Heavy, Update-Light Data
 //!
-//! `AnyCow` is a versatile, high-performance container that extends the concept of `Cow` 
-//! (Clone-on-Write) with multiple storage strategies optimized for different use cases. 
-//! It's perfect for scenarios where you need to read values frequently but update them 
+//! `AnyCow` is a versatile, high-performance container that extends the concept of `Cow`
+//! (Clone-on-Write) with multiple storage strategies optimized for different use cases.
+//! It's perfect for scenarios where you need to read values frequently but update them
 //! only occasionally.
 //!
 //! ## Features
@@ -15,7 +15,7 @@
 //! ## Storage Variants
 //!
 //! - [`AnyCow::Borrowed`] - Zero-cost references for temporary data
-//! - [`AnyCow::Owned`] - Heap-allocated owned data via `Box<T>` 
+//! - [`AnyCow::Owned`] - Heap-allocated owned data via `Box<T>`
 //! - [`AnyCow::Shared`] - `Arc<T>` for shared immutable data across threads
 //! - [`AnyCow::Updatable`] - Lock-free atomic updates using `arc-swap`
 //!
@@ -38,8 +38,8 @@
 //! ```
 
 use arc_swap::{ArcSwap, Guard};
-use std::sync::Arc;
 use std::ops::Deref;
+use std::sync::Arc;
 
 /// A supercharged container that can hold data in multiple storage formats,
 /// optimized for read-heavy, occasionally-updated scenarios.
@@ -75,26 +75,26 @@ where
     T: 'a + ToOwned,
 {
     /// A borrowed reference to the data with zero allocation cost.
-    /// 
+    ///
     /// This variant is ideal for temporary references and hot code paths
     /// where you want to avoid any allocation overhead.
     Borrowed(&'a T),
-    
+
     /// Heap-allocated owned data stored in a `Box<T>`.
-    /// 
+    ///
     /// This variant gives you ownership of the data stored on the heap
     /// and allows for direct mutation via [`to_mut()`](AnyCow::to_mut).
     /// Useful for data that needs to be owned and potentially large.
     Owned(Box<T>),
-    
+
     /// Reference-counted shared data via `Arc<T>`.
-    /// 
+    ///
     /// Perfect for sharing immutable data across multiple threads
     /// or when you need multiple owners of the same data.
     Shared(Arc<T>),
-    
+
     /// Atomically updatable data using lock-free operations.
-    /// 
+    ///
     /// This variant uses `arc-swap` to provide lock-free, atomic updates
     /// while allowing multiple concurrent readers. Ideal for configuration
     /// data, caches, or any shared state that needs occasional updates.
@@ -106,15 +106,15 @@ where
     T: 'a + ToOwned<Owned = T>,
 {
     /// Creates a new `AnyCow` with a borrowed reference to the data.
-    /// 
+    ///
     /// This is the most efficient variant as it involves no allocation
     /// and provides zero-cost access to the underlying data.
-    /// 
+    ///
     /// # Examples
-    /// 
+    ///
     /// ```rust
     /// use anycow::AnyCow;
-    /// 
+    ///
     /// let data = "hello world";
     /// let cow = AnyCow::borrowed(&data);
     /// assert!(cow.is_borrowed());
@@ -124,15 +124,15 @@ where
     }
 
     /// Creates a new `AnyCow` with owned data stored in a `Box<T>`.
-    /// 
+    ///
     /// The data is moved into a heap-allocated box and can be mutated
     /// via [`to_mut()`](Self::to_mut).
-    /// 
+    ///
     /// # Examples
-    /// 
+    ///
     /// ```rust
     /// use anycow::AnyCow;
-    /// 
+    ///
     /// let cow = AnyCow::owned(String::from("hello"));
     /// assert!(cow.is_owned());
     /// ```
@@ -141,16 +141,16 @@ where
     }
 
     /// Creates a new `AnyCow` with reference-counted shared data.
-    /// 
+    ///
     /// Perfect for sharing immutable data across multiple threads
     /// or when you need multiple owners.
-    /// 
+    ///
     /// # Examples
-    /// 
+    ///
     /// ```rust
     /// use anycow::AnyCow;
     /// use std::sync::Arc;
-    /// 
+    ///
     /// let data = Arc::new(String::from("shared data"));
     /// let cow = AnyCow::shared(data);
     /// ```
@@ -159,21 +159,21 @@ where
     }
 
     /// Creates a new `AnyCow` with atomically updatable data.
-    /// 
+    ///
     /// This variant uses `arc-swap` for lock-free, atomic updates
     /// while allowing concurrent reads. Perfect for configuration
     /// data, caches, or shared state with infrequent updates.
-    /// 
+    ///
     /// # Examples
-    /// 
+    ///
     /// ```rust
     /// use anycow::AnyCow;
-    /// 
+    ///
     /// let cow = AnyCow::updatable(vec![1, 2, 3]);
-    /// 
+    ///
     /// // Read the current value
     /// assert_eq!(*cow.borrow(), vec![1, 2, 3]);
-    /// 
+    ///
     /// // Atomically update the value
     /// cow.try_replace(vec![4, 5, 6]).unwrap();
     /// assert_eq!(*cow.borrow(), vec![4, 5, 6]);
@@ -183,16 +183,16 @@ where
     }
 
     /// Returns `true` if this `AnyCow` contains a borrowed reference.
-    /// 
+    ///
     /// # Examples
-    /// 
+    ///
     /// ```rust
     /// use anycow::AnyCow;
-    /// 
+    ///
     /// let data = "hello";
     /// let cow = AnyCow::borrowed(&data);
     /// assert!(cow.is_borrowed());
-    /// 
+    ///
     /// let cow = AnyCow::owned(String::from("hello"));
     /// assert!(!cow.is_borrowed());
     /// ```
@@ -201,15 +201,15 @@ where
     }
 
     /// Returns `true` if this `AnyCow` contains owned data.
-    /// 
+    ///
     /// # Examples
-    /// 
+    ///
     /// ```rust
     /// use anycow::AnyCow;
-    /// 
+    ///
     /// let cow = AnyCow::owned(String::from("hello"));
     /// assert!(cow.is_owned());
-    /// 
+    ///
     /// let data = "hello";
     /// let cow = AnyCow::borrowed(&data);
     /// assert!(!cow.is_owned());
@@ -219,24 +219,24 @@ where
     }
 
     /// Returns a mutable reference to the owned data.
-    /// 
+    ///
     /// If the data is not already owned, this method will clone it
     /// (following Clone-on-Write semantics) and convert the container
     /// to the `Owned` variant.
-    /// 
+    ///
     /// # Examples
-    /// 
+    ///
     /// ```rust
     /// use anycow::AnyCow;
-    /// 
+    ///
     /// let hello = String::from("hello");
     /// let mut cow = AnyCow::borrowed(&hello);
     /// assert!(cow.is_borrowed());
-    /// 
+    ///
     /// // This will clone the data and make it owned
     /// let mutable_ref = cow.to_mut();
     /// *mutable_ref = String::from("world");
-    /// 
+    ///
     /// assert!(cow.is_owned());
     /// assert_eq!(*cow.borrow(), "world");
     /// ```
@@ -269,22 +269,22 @@ where
     }
 
     /// Converts this `AnyCow` into owned data.
-    /// 
+    ///
     /// This method consumes the container and returns the owned data,
     /// cloning if necessary. For `Arc` data, it will try to unwrap
     /// the `Arc` if there's only one reference, otherwise it will clone.
-    /// 
+    ///
     /// # Examples
-    /// 
+    ///
     /// ```rust
     /// use anycow::AnyCow;
     /// use std::sync::Arc;
-    /// 
+    ///
     /// let hello = String::from("hello");
     /// let cow = AnyCow::borrowed(&hello);
     /// let owned: String = cow.into_owned();
     /// assert_eq!(owned, "hello");
-    /// 
+    ///
     /// let cow = AnyCow::shared(Arc::new(42));
     /// let owned: i32 = cow.into_owned();
     /// assert_eq!(owned, 42);
@@ -293,27 +293,29 @@ where
         match self {
             AnyCow::Borrowed(value) => value.to_owned(),
             AnyCow::Owned(value) => *value,
-            AnyCow::Shared(value) => Arc::try_unwrap(value).unwrap_or_else(|arc| arc.as_ref().to_owned()),
+            AnyCow::Shared(value) => {
+                Arc::try_unwrap(value).unwrap_or_else(|arc| arc.as_ref().to_owned())
+            }
             AnyCow::Updatable(value) => value.load().as_ref().to_owned(),
         }
     }
 
     /// Returns a reference to the contained data.
-    /// 
+    ///
     /// This method provides unified access to the data regardless of
     /// the storage variant. For the `Updatable` variant, this returns
     /// a guard that ensures the data remains valid during access.
-    /// 
+    ///
     /// # Examples
-    /// 
+    ///
     /// ```rust
     /// use anycow::AnyCow;
     /// use std::sync::Arc;
-    /// 
+    ///
     /// let borrowed = AnyCow::borrowed(&"hello");
     /// let owned = AnyCow::owned(String::from("world"));
     /// let shared = AnyCow::shared(Arc::new(42));
-    /// 
+    ///
     /// assert_eq!(*borrowed.borrow(), "hello");
     /// assert_eq!(*owned.borrow(), "world");
     /// assert_eq!(*shared.borrow(), 42);
@@ -322,59 +324,59 @@ where
         match self {
             AnyCow::Borrowed(value) => AnyCowRef::Direct(value),
             AnyCow::Owned(value) => AnyCowRef::Direct(&**value),
-            AnyCow::Shared(value) => AnyCowRef::Direct(&*value),
+            AnyCow::Shared(value) => AnyCowRef::Direct(value),
             AnyCow::Updatable(value) => AnyCowRef::Guarded(value.load()),
         }
     }
 
     /// Attempts to atomically replace the value in an `Updatable` variant.
-    /// 
+    ///
     /// This method only succeeds if the container is of the `Updatable` variant.
     /// The replacement is atomic and lock-free, making it perfect for
     /// concurrent scenarios.
-    /// 
+    ///
     /// # Returns
-    /// 
+    ///
     /// - `Ok(())` if the replacement was successful
     /// - `Err(())` if this container is not the `Updatable` variant
-    /// 
+    ///
     /// # Examples
-    /// 
+    ///
     /// ```rust
     /// use anycow::AnyCow;
-    /// 
+    ///
     /// let updatable = AnyCow::updatable(vec![1, 2, 3]);
     /// assert_eq!(*updatable.borrow(), vec![1, 2, 3]);
-    /// 
+    ///
     /// // Atomic replacement
     /// assert!(updatable.try_replace(vec![4, 5, 6]).is_ok());
     /// assert_eq!(*updatable.borrow(), vec![4, 5, 6]);
-    /// 
+    ///
     /// // This will fail for non-updatable variants
     /// let owned = AnyCow::owned(vec![1, 2, 3]);
     /// assert!(owned.try_replace(vec![4, 5, 6]).is_err());
     /// ```
-    pub fn try_replace(&self, new_val: T) -> Result<(), ()> {
+    pub fn try_replace(&self, new_val: T) -> Result<(), AnyCowReplaceError> {
         if let AnyCow::Updatable(a) = self {
             a.store(Arc::new(new_val));
             Ok(())
         } else {
-            Err(())
+            Err(AnyCowReplaceError)
         }
     }
 
     /// Converts this `AnyCow` to an `Arc<T>`.
-    /// 
+    ///
     /// This method will clone the data if necessary to create an `Arc`.
-    /// If the container already holds an `Arc` (in the `Shared` or `Updatable` 
+    /// If the container already holds an `Arc` (in the `Shared` or `Updatable`
     /// variants), it may reuse the existing `Arc`.
-    /// 
+    ///
     /// # Examples
-    /// 
+    ///
     /// ```rust
     /// use anycow::AnyCow;
     /// use std::sync::Arc;
-    /// 
+    ///
     /// let cow = AnyCow::owned(String::from("hello"));
     /// let arc: Arc<String> = cow.to_arc();
     /// assert_eq!(*arc, "hello");
@@ -390,15 +392,15 @@ where
 }
 
 /// Automatic conversion from owned values.
-/// 
+///
 /// This implementation allows any owned value to be automatically
 /// converted into an `AnyCow::Owned` variant.
-/// 
+///
 /// # Examples
-/// 
+///
 /// ```rust
 /// use anycow::AnyCow;
-/// 
+///
 /// let cow: AnyCow<String> = String::from("hello").into();
 /// assert!(cow.is_owned());
 /// ```
@@ -412,15 +414,15 @@ where
 }
 
 /// Automatic conversion from borrowed references.
-/// 
+///
 /// This implementation allows borrowed references to be automatically
 /// converted into an `AnyCow::Borrowed` variant.
-/// 
+///
 /// # Examples
-/// 
+///
 /// ```rust
 /// use anycow::AnyCow;
-/// 
+///
 /// let data = String::from("hello");
 /// let cow: AnyCow<String> = (&data).into();
 /// assert!(cow.is_borrowed());
@@ -435,16 +437,16 @@ where
 }
 
 /// Automatic conversion from `Arc<T>`.
-/// 
+///
 /// This implementation allows `Arc<T>` values to be automatically
 /// converted into an `AnyCow::Shared` variant.
-/// 
+///
 /// # Examples
-/// 
+///
 /// ```rust
 /// use anycow::AnyCow;
 /// use std::sync::Arc;
-/// 
+///
 /// let arc = Arc::new(String::from("hello"));
 /// let cow: AnyCow<String> = arc.into();
 /// ```
@@ -458,16 +460,16 @@ where
 }
 
 /// A reference to data contained in an `AnyCow`.
-/// 
+///
 /// This enum provides unified access to data regardless of how it's stored
 /// in the `AnyCow`. The `Guarded` variant is used for the `Updatable` storage
 /// to ensure the data remains valid during access through lock-free mechanisms.
-/// 
+///
 /// # Examples
-/// 
+///
 /// ```rust
 /// use anycow::AnyCow;
-/// 
+///
 /// let cow = AnyCow::owned(String::from("hello"));
 /// let cow_ref = cow.borrow();
 /// assert_eq!(&*cow_ref, "hello");
@@ -477,20 +479,20 @@ where
     T: 'a + ToOwned,
 {
     /// A direct reference to the data.
-    /// 
+    ///
     /// Used for `Borrowed`, `Owned`, `Shared`, and `Boxed` variants
     /// where we can provide a direct reference to the data.
     Direct(&'a T),
-    
+
     /// A guarded reference to atomically-managed data.
-    /// 
+    ///
     /// Used for the `Updatable` variant to ensure the data remains
     /// valid during access through the `arc-swap` guard mechanism.
     Guarded(Guard<Arc<T>>),
 }
 
 /// Provides transparent access to the contained data.
-/// 
+///
 /// This implementation allows `AnyCowRef` to be used transparently
 /// as if it were a direct reference to the contained data.
 impl<'a, T> Deref for AnyCowRef<'a, T>
@@ -508,7 +510,7 @@ where
 }
 
 /// Cloning support for `AnyCow`.
-/// 
+///
 /// Cloning behavior varies by variant:
 /// - `Borrowed`: Copies the reference (cheap)
 /// - `Owned`: Clones the owned data in the box
@@ -529,7 +531,7 @@ where
 }
 
 /// Debug formatting for `AnyCow`.
-/// 
+///
 /// Shows both the variant type and the contained data for easy debugging.
 impl<'a, T> std::fmt::Debug for AnyCow<'a, T>
 where
@@ -546,7 +548,7 @@ where
 }
 
 /// Equality comparison for `AnyCow`.
-/// 
+///
 /// Compares the contained data regardless of storage variant.
 /// Two `AnyCow` instances are equal if their contained data is equal.
 impl<'a, T> PartialEq for AnyCow<'a, T>
@@ -559,14 +561,10 @@ where
 }
 
 /// Full equality for `AnyCow`.
-impl<'a, T> Eq for AnyCow<'a, T>
-where
-    T: 'a + ToOwned<Owned = T> + Eq,
-{
-}
+impl<'a, T> Eq for AnyCow<'a, T> where T: 'a + ToOwned<Owned = T> + Eq {}
 
 /// Hash implementation for `AnyCow`.
-/// 
+///
 /// Hashes the contained data regardless of storage variant.
 impl<'a, T> std::hash::Hash for AnyCow<'a, T>
 where
@@ -578,7 +576,7 @@ where
 }
 
 /// Partial ordering for `AnyCow`.
-/// 
+///
 /// Compares the contained data regardless of storage variant.
 impl<'a, T> PartialOrd for AnyCow<'a, T>
 where
@@ -590,7 +588,7 @@ where
 }
 
 /// Total ordering for `AnyCow`.
-/// 
+///
 /// Orders based on the contained data regardless of storage variant.
 impl<'a, T> Ord for AnyCow<'a, T>
 where
@@ -602,7 +600,7 @@ where
 }
 
 /// Display formatting for `AnyCow`.
-/// 
+///
 /// Displays the contained data regardless of storage variant.
 impl<'a, T> std::fmt::Display for AnyCow<'a, T>
 where
@@ -612,3 +610,6 @@ where
         self.borrow().deref().fmt(f)
     }
 }
+
+#[derive(Debug, PartialEq, Eq, Copy, Clone)]
+pub struct AnyCowReplaceError;
