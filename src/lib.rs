@@ -18,6 +18,7 @@
 //! - [`AnyCow::Owned`] - Heap-allocated owned data via `Box<T>`
 //! - [`AnyCow::Shared`] - `Arc<T>` for shared immutable data across threads
 //! - [`AnyCow::Updatable`] - Lock-free atomic updates using `arc-swap`
+//! - [`AnyCow::Lazy`] - Lazy initialization with atomic updates for static contexts
 //!
 //! ## Quick Example
 //!
@@ -28,6 +29,7 @@
 //! let borrowed = AnyCow::borrowed(&"hello");
 //! let owned = AnyCow::owned(String::from("world"));
 //! let updatable = AnyCow::updatable(vec![1, 2, 3]);
+//! let lazy = AnyCow::lazy(|| vec![7, 8, 9]);
 //!
 //! // Read values efficiently
 //! println!("{}", *borrowed.borrow()); // "hello"
@@ -35,11 +37,12 @@
 //!
 //! // Atomic updates (lock-free!)
 //! updatable.try_replace(vec![4, 5, 6]).unwrap();
+//! lazy.try_replace(vec![10, 11, 12]).unwrap();
 //! ```
 
 use arc_swap::{ArcSwap, Guard};
 use std::ops::Deref;
-use std::sync::Arc;
+use std::sync::{Arc, OnceLock};
 
 /// A supercharged container that can hold data in multiple storage formats,
 /// optimized for read-heavy, occasionally-updated scenarios.
@@ -51,6 +54,7 @@ use std::sync::Arc;
 /// - **Owned**: Heap-allocated owned data via `Box<T>`
 /// - **Shared**: Reference-counted sharing via `Arc<T>`
 /// - **Updatable**: Atomic, lock-free updates via `arc-swap`
+/// - **Lazy**: Lazy initialization with atomic updates for static contexts
 ///
 /// # Examples
 ///
@@ -63,12 +67,14 @@ use std::sync::Arc;
 /// let owned = AnyCow::owned(String::from("world"));
 /// let shared = AnyCow::shared(Arc::new(42));
 /// let updatable = AnyCow::updatable(vec![1, 2, 3]);
+/// let lazy = AnyCow::lazy(|| vec![4, 5, 6]);
 ///
 /// // All variants can be read the same way
 /// assert_eq!(*borrowed.borrow(), "hello");
 /// assert_eq!(*owned.borrow(), "world");
 /// assert_eq!(*shared.borrow(), 42);
 /// assert_eq!(*updatable.borrow(), vec![1, 2, 3]);
+/// assert_eq!(*lazy.borrow(), vec![4, 5, 6]);
 /// ```
 pub enum AnyCow<'a, T>
 where
@@ -99,6 +105,23 @@ where
     /// while allowing multiple concurrent readers. Ideal for configuration
     /// data, caches, or any shared state that needs occasional updates.
     Updatable(ArcSwap<T>),
+
+    /// Lazy initialization with atomic updates.
+    ///
+    /// This variant combines lazy initialization with atomic updates.
+    /// The data is initialized on first access using the provided closure,
+    /// and can then be atomically updated like the `Updatable` variant.
+    /// Perfect for static contexts where you need lazy initialization
+    /// with subsequent atomic updates.
+    ///
+    /// The initialization function is stored as a function pointer to
+    /// ensure the variant can be used in const contexts and static variables.
+    Lazy {
+        /// The lazily-initialized atomic data
+        data: OnceLock<ArcSwap<T>>,
+        /// The initialization function, called only once on first access
+        init: fn() -> T,
+    },
 }
 
 impl<'a, T> AnyCow<'a, T>
@@ -182,6 +205,38 @@ where
         AnyCow::Updatable(ArcSwap::from(Arc::new(value)))
     }
 
+    /// Creates a new `AnyCow` with lazy initialization and atomic updates.
+    ///
+    /// This variant combines lazy initialization with atomic updates.
+    /// The data is initialized on first access using the provided function,
+    /// and can then be atomically updated like the `Updatable` variant.
+    /// Perfect for static contexts where you need lazy initialization.
+    ///
+    /// The initialization function is stored as a function pointer to
+    /// ensure the variant can be used in const contexts and static variables.
+    ///
+    /// # Examples
+    ///
+    /// ```rust
+    /// use anycow::AnyCow;
+    ///
+    /// // Can be used in const contexts and static variables
+    /// static GLOBAL_CONFIG: AnyCow<Vec<i32>> = AnyCow::lazy(|| vec![1, 2, 3]);
+    ///
+    /// // First access initializes the data
+    /// assert_eq!(*GLOBAL_CONFIG.borrow(), vec![1, 2, 3]);
+    ///
+    /// // Subsequent updates work atomically
+    /// GLOBAL_CONFIG.try_replace(vec![4, 5, 6]).unwrap();
+    /// assert_eq!(*GLOBAL_CONFIG.borrow(), vec![4, 5, 6]);
+    /// ```
+    pub const fn lazy(init: fn() -> T) -> Self {
+        AnyCow::Lazy {
+            data: OnceLock::new(),
+            init,
+        }
+    }
+
     /// Returns `true` if this `AnyCow` contains a borrowed reference.
     ///
     /// # Examples
@@ -253,6 +308,23 @@ where
         matches!(self, AnyCow::Updatable(_))
     }
 
+    /// Returns `true` if this `AnyCow` contains lazy data.
+    ///
+    /// # Examples
+    ///
+    /// ```rust
+    /// use anycow::AnyCow;
+    ///
+    /// let cow = AnyCow::lazy(|| String::from("hello"));
+    /// assert!(cow.is_lazy());
+    ///
+    /// let cow = AnyCow::owned(String::from("hello"));
+    /// assert!(!cow.is_lazy());
+    /// ```
+    pub const fn is_lazy(&self) -> bool {
+        matches!(self, AnyCow::Lazy { .. })
+    }
+
     /// Returns a mutable reference to the owned data.
     ///
     /// If the data is not already owned, this method will clone it
@@ -300,6 +372,15 @@ where
                     _ => unreachable!(),
                 }
             }
+            AnyCow::Lazy { data, init } => {
+                let arc_swap = data.get_or_init(|| ArcSwap::from(Arc::new(init())));
+                let owned = arc_swap.load().as_ref().to_owned();
+                *self = AnyCow::Owned(Box::new(owned));
+                match self {
+                    AnyCow::Owned(value) => value,
+                    _ => unreachable!(),
+                }
+            }
         }
     }
 
@@ -332,6 +413,10 @@ where
                 Arc::try_unwrap(value).unwrap_or_else(|arc| arc.as_ref().to_owned())
             }
             AnyCow::Updatable(value) => value.load().as_ref().to_owned(),
+            AnyCow::Lazy { data, init } => {
+                let arc_swap = data.get_or_init(|| ArcSwap::from(Arc::new(init())));
+                arc_swap.load().as_ref().to_owned()
+            }
         }
     }
 
@@ -361,19 +446,24 @@ where
             AnyCow::Owned(value) => AnyCowRef::Direct(&**value),
             AnyCow::Shared(value) => AnyCowRef::Direct(value),
             AnyCow::Updatable(value) => AnyCowRef::Guarded(value.load()),
+            AnyCow::Lazy { data, init } => {
+                let arc_swap = data.get_or_init(|| ArcSwap::from(Arc::new(init())));
+                AnyCowRef::Guarded(arc_swap.load())
+            }
         }
     }
 
-    /// Attempts to atomically replace the value in an `Updatable` variant.
+    /// Attempts to atomically replace the value in an `Updatable` or `Lazy` variant.
     ///
-    /// This method only succeeds if the container is of the `Updatable` variant.
+    /// This method succeeds if the container is of the `Updatable` or `Lazy` variant.
     /// The replacement is atomic and lock-free, making it perfect for
-    /// concurrent scenarios.
+    /// concurrent scenarios. For `Lazy` variants, this will initialize the
+    /// data if it hasn't been accessed before.
     ///
     /// # Returns
     ///
     /// - `Ok(())` if the replacement was successful
-    /// - `Err(())` if this container is not the `Updatable` variant
+    /// - `Err(AnyCowReplaceError)` if this container is not an `Updatable` or `Lazy` variant
     ///
     /// # Examples
     ///
@@ -387,16 +477,27 @@ where
     /// assert!(updatable.try_replace(vec![4, 5, 6]).is_ok());
     /// assert_eq!(*updatable.borrow(), vec![4, 5, 6]);
     ///
-    /// // This will fail for non-updatable variants
+    /// // Also works with lazy variants
+    /// let lazy = AnyCow::lazy(|| vec![7, 8, 9]);
+    /// assert!(lazy.try_replace(vec![10, 11, 12]).is_ok());
+    /// assert_eq!(*lazy.borrow(), vec![10, 11, 12]);
+    ///
+    /// // This will fail for other variants
     /// let owned = AnyCow::owned(vec![1, 2, 3]);
     /// assert!(owned.try_replace(vec![4, 5, 6]).is_err());
     /// ```
     pub fn try_replace(&self, new_val: T) -> Result<(), AnyCowReplaceError> {
-        if let AnyCow::Updatable(a) = self {
-            a.store(Arc::new(new_val));
-            Ok(())
-        } else {
-            Err(AnyCowReplaceError)
+        match self {
+            AnyCow::Updatable(a) => {
+                a.store(Arc::new(new_val));
+                Ok(())
+            }
+            AnyCow::Lazy { data, init } => {
+                let arc_swap = data.get_or_init(|| ArcSwap::from(Arc::new(init())));
+                arc_swap.store(Arc::new(new_val));
+                Ok(())
+            }
+            _ => Err(AnyCowReplaceError),
         }
     }
 
@@ -422,6 +523,10 @@ where
             AnyCow::Owned(value) => Arc::new((**value).to_owned()),
             AnyCow::Shared(value) => value.clone(),
             AnyCow::Updatable(value) => value.load().to_owned(),
+            AnyCow::Lazy { data, init } => {
+                let arc_swap = data.get_or_init(|| ArcSwap::from(Arc::new(init())));
+                arc_swap.load().to_owned()
+            }
         }
     }
 }
@@ -551,6 +656,7 @@ where
 /// - `Owned`: Clones the owned data in the box
 /// - `Shared`: Clones the `Arc` (cheap reference counting)
 /// - `Updatable`: Converts to `Shared` with current data snapshot
+/// - `Lazy`: Creates a new `Lazy` with the same init function
 impl<'a, T> Clone for AnyCow<'a, T>
 where
     T: 'a + ToOwned<Owned = T> + Clone,
@@ -561,6 +667,18 @@ where
             AnyCow::Owned(value) => AnyCow::Owned(Box::new((**value).clone())),
             AnyCow::Shared(value) => AnyCow::Shared(value.clone()),
             AnyCow::Updatable(value) => AnyCow::Shared(value.load().clone()),
+            AnyCow::Lazy { data, init } => {
+                // If already initialized, create a shared version with current data
+                // Otherwise, create a new lazy with the same init function
+                if let Some(arc_swap) = data.get() {
+                    AnyCow::Shared(arc_swap.load().clone())
+                } else {
+                    AnyCow::Lazy {
+                        data: OnceLock::new(),
+                        init: *init,
+                    }
+                }
+            }
         }
     }
 }
@@ -578,6 +696,13 @@ where
             AnyCow::Owned(value) => f.debug_tuple("Owned").field(&**value).finish(),
             AnyCow::Shared(value) => f.debug_tuple("Shared").field(value).finish(),
             AnyCow::Updatable(value) => f.debug_tuple("Updatable").field(&*value.load()).finish(),
+            AnyCow::Lazy { data, .. } => {
+                if let Some(arc_swap) = data.get() {
+                    f.debug_tuple("Lazy").field(&*arc_swap.load()).finish()
+                } else {
+                    f.debug_tuple("Lazy").field(&"<uninitialized>").finish()
+                }
+            }
         }
     }
 }

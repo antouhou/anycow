@@ -15,11 +15,13 @@
   - `Owned` - Heap-allocated owned data via `Box<T>`
   - `Shared` - `Arc<T>` for shared immutable data
   - `Updatable` - Lock-free atomic updates using `arc-swap`
+  - `Lazy` - Lazy initialization with atomic updates for static contexts
 
-- **Lock-Free Updates**: The `Updatable` variant uses `arc-swap` for atomic, lock-free updates
+- **Lock-Free Updates**: The `Updatable` and `Lazy` variants use `arc-swap` for atomic, lock-free updates
+- **Lazy Initialization**: The `Lazy` variant makes it possbile to create an `Updatable` in a static context
 - **Flexible API**: Easy conversion between different storage types
 - **Zero-Cost Abstractions**: Minimal overhead for common operations
-- **Thread-Safe**: Share data safely across threads with `Shared` and `Updatable` variants
+- **Thread-Safe**: Share data safely across threads with `Shared`, `Updatable`, and `Lazy` variants
 
 ## 📦 Installation
 
@@ -35,6 +37,7 @@ anycow = "0.1"
 AnyCow shines in scenarios where you have:
 
 - **Configuration data** that's read frequently but updated occasionally
+- **Global/static data** that needs lazy initialization and atomic updates
 - **Cached values** that need atomic updates without locks
 - **Shared state** across multiple threads with infrequent modifications
 - **Hot paths** where you want to minimize allocation overhead
@@ -50,6 +53,7 @@ let borrowed = AnyCow::borrowed(&"hello");
 let owned = AnyCow::owned(String::from("world"));
 let shared = AnyCow::shared(std::sync::Arc::new(42));
 let updatable = AnyCow::updatable(vec![1, 2, 3]);
+let lazy = AnyCow::lazy(|| vec![7, 8, 9]);
 
 // Read values efficiently
 println!("{}", *borrowed.borrow()); // "hello"
@@ -57,6 +61,7 @@ println!("{}", *owned.borrow());    // "world"
 
 // Atomic updates (lock-free!)
 updatable.try_replace(vec![4, 5, 6]).unwrap();
+lazy.try_replace(vec![10, 11, 12]).unwrap();
 ```
 
 ## 💡 Examples
@@ -130,6 +135,37 @@ cache.try_replace(vec![4, 5, 6, 7, 8]).unwrap();
 reader.join().unwrap();
 ```
 
+### Lazy Global Configuration
+
+```rust
+use anycow::AnyCow;
+use std::collections::HashMap;
+
+// Perfect for static/global data that's expensive to initialize
+static CONFIG: AnyCow<HashMap<String, String>> = AnyCow::lazy(|| {
+    println!("Loading configuration..."); // Only runs once!
+    let mut config = HashMap::new();
+    config.insert("app_name".to_string(), "MyApp".to_string());
+    config.insert("version".to_string(), "1.0.0".to_string());
+    config
+});
+
+fn main() {
+    // First access initializes the config
+    let app_name = CONFIG.borrow().get("app_name").cloned().unwrap();
+    println!("App: {}", app_name);
+    
+    // Subsequent accesses are fast (no re-initialization)
+    let version = CONFIG.borrow().get("version").cloned().unwrap();
+    println!("Version: {}", version);
+    
+    // Update the global config atomically
+    let mut new_config = HashMap::new();
+    new_config.insert("app_name".to_string(), "MyApp Pro".to_string());
+    new_config.insert("version".to_string(), "2.0.0".to_string());
+    CONFIG.try_replace(new_config).unwrap();
+}
+
 ## 🧠 Storage Strategy Guide
 
 | Variant | Best For | Thread Safe | Mutable | Memory |
@@ -138,6 +174,7 @@ reader.join().unwrap();
 | `Owned` | Exclusive ownership | ❌ | ✅ | Heap |
 | `Shared` | Read-only sharing | ✅ | ❌ | Shared |
 | `Updatable` | Concurrent reads + atomic updates | ✅ | Via `try_replace()` | Shared + Atomic |
+| `Lazy` | Static/global data + atomic updates | ✅ | Via `try_replace()` | Lazy + Shared + Atomic |
 
 ## 🔧 API Reference
 
@@ -147,6 +184,7 @@ AnyCow::borrowed(&value)    // From reference
 AnyCow::owned(value)        // From owned value (boxed)
 AnyCow::shared(arc)         // From Arc<T>
 AnyCow::updatable(value)    // Create updatable variant
+AnyCow::lazy(init_fn)       // Create lazy variant with init function
 ```
 
 ### Access
@@ -159,7 +197,7 @@ container.to_arc()          // Convert to Arc<T>
 
 ### Updates
 ```rust
-container.try_replace(new_value)  // Atomic update (Updatable only)
+container.try_replace(new_value)  // Atomic update (Updatable & Lazy only)
 ```
 
 ## ⚡ Performance
@@ -167,7 +205,8 @@ container.try_replace(new_value)  // Atomic update (Updatable only)
 AnyCow is designed for performance:
 
 - **Zero-cost borrowing**: No allocation for `Borrowed` variant
-- **Lock-free updates**: `Updatable` uses `arc-swap` for atomic operations
+- **Lazy initialization**: `Lazy` variant allow to create an `Updatable` in a static context
+- **Lock-free updates**: `Updatable` and `Lazy` use `arc-swap` for atomic operations
 - **Minimal overhead**: Smart enum design with efficient memory layout
 - **Branch prediction friendly**: Common operations are optimized
 
